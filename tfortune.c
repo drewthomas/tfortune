@@ -130,7 +130,7 @@ unsigned char Jars_add(Jars* js, const char* dat_file_path)
 	return 1;
 }
 
-unsigned char Jars_fortune(const Jars* js)
+unsigned char Jars_fortune(const Jars* js, bool show_chosen_file)
 {
 	float chance;
 	char* cookie_buf;
@@ -175,7 +175,8 @@ unsigned char Jars_fortune(const Jars* js)
 	}
 
 	if (fseek(fh, (long) (6 + js->j[jar_no].num_fortunes * (rand() / (RAND_MAX + 1.0))) * sizeof(uint32_t), SEEK_SET)) {
-		fprintf(stderr, "Cannot seek in fortune data file %s for offsets.\n", dat);
+		fprintf(stderr,
+		        "Cannot seek in fortune data file %s for offsets.\n", dat);
 		return 0;
 	}
 
@@ -232,6 +233,10 @@ unsigned char Jars_fortune(const Jars* js)
 	   assumption of Unix-style line endings. */
 	if ((num_bytes >= 2) && (cookie_buf[num_bytes-2] == js->j[jar_no].delim) && (cookie_buf[num_bytes-1] == '\n')) {
 		num_bytes -= 2;
+	}
+
+	if (show_chosen_file) {
+		printf("%s\n%%\n", dat);
 	}
 
 	fwrite(cookie_buf, num_bytes, 1, stdout);
@@ -438,19 +443,23 @@ int main(int argc, char* argv[])
 	int getopt_option;
 	Jars js;
 	bool merely_list_fortune_files = false;
+	bool show_chosen_file = false;
 
 	if (!Jars_init(&js, 0)) {
 		fputs("Cannot initialize list of fortune cookie files.\n", stderr);
 		return EXIT_FAILURE;
 	}
 
-	while ((getopt_option = getopt(argc, argv, "f")) != -1) {
+	while ((getopt_option = getopt(argc, argv, "cf")) != -1) {
 		switch (getopt_option) {
+		case 'c':
+			show_chosen_file = true;
+		break;
 		case 'f':
 			merely_list_fortune_files = true;
 		break;
 		default:
-			fprintf(stderr, "Usage: %s [-f]\n", argv[0]);
+			fprintf(stderr, "Usage: %s [-cf]\n", argv[0]);
 		return EXIT_FAILURE;
 		}
 	}
@@ -465,7 +474,7 @@ int main(int argc, char* argv[])
 
 	srand(time(NULL) + getpid() + getppid());
 
-	if (!Jars_fortune(&js)) {
+	if (!Jars_fortune(&js, show_chosen_file)) {
 		fputs("Failed to pick out a fortune cookie.\n", stderr);
 		return EXIT_FAILURE;
 	}
