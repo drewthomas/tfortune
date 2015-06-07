@@ -1,9 +1,12 @@
+/* tfortune: fortune with recursive directory traversal */
+
 #define _BSD_SOURCE  /* for non-standard DT_DIR constant */
 
 #include <arpa/inet.h>  /* for uint32_t & htonl */
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <dirent.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -99,7 +102,8 @@ unsigned char Jars_add(Jars* js, const char* dat_file_path)
 		/* Handling fortune files with special flags is unimplemented;
 		   fortunately I've yet to find a fortune file that uses any, but
 		   apologize to the user if it comes up. */
-		fprintf(stderr, "Fortune data file %s has special flags set, but these will be ignored; sorry.\n", dat_file_path);
+		fprintf(stderr, "Fortune data file %s has special flags set, but "
+		        "these will be ignored; sorry.\n", dat_file_path);
 	}
 
 	/* Close the dat file. */
@@ -141,7 +145,8 @@ unsigned char Jars_fortune(const Jars* js)
 	float prob = rand() / (float) RAND_MAX;
 
 	if (js->count == 0) {
-		fputs("Cannot pick a random fortune cookie from empty fortune cookie file list!\n", stderr);
+		fputs("Cannot pick a random fortune cookie from empty "
+		      "fortune cookie file list!\n", stderr);
 		return 0;
 	}
 
@@ -241,6 +246,40 @@ unsigned char Jars_fortune(const Jars* js)
 	*last_dot_ptr = '.';
 
 	return 1;
+}
+
+void Jars_list(const char* dir_path, const Jars* js)
+{
+	float chance;
+	const size_t dir_path_len = strlen(dir_path);
+	unsigned int jar_no;
+	char *p;
+	char *path_end;
+
+	if (!(js->num_fortunes)) {
+		printf("  0.00%% %s\n", dir_path);
+		return;
+	} else {
+		printf("100.00%% %s\n", dir_path);
+	}
+
+	for (jar_no = 0; jar_no < js->count; jar_no++) {
+		/* Display the selection probability and short name of fortune
+		   file `jar_no`. Since each file's name is stored as the path to
+		   its .dat file, shave the last four characters from the name
+		   before displaying it, to eliminate the superfluous ".dat". */
+		chance = js->j[jar_no].num_fortunes / (float) js->num_fortunes;
+		printf("    %5.2f%% ", 100.0 * chance);
+		p = js->j[jar_no].dat + dir_path_len;
+		path_end = p + 1;
+		while (*path_end) {
+			path_end++;
+		}
+		for (; p < path_end - 4; p++) {
+			putchar(*p);
+		}
+		putchar('\n');
+	}
 }
 
 void Jars_free(Jars* js)
@@ -348,7 +387,8 @@ char walk_for_fortune_files(const char* dir_path, Jars* js)
 				   in `cur_dir`, plus length of the nonzero bytes in
 				   `cur_file`, plus 2 bytes for the terminating zero byte and
 				   the '/' separator. */
-				cur_file_needing_alloc = strlen(cur_dir) + strlen(dirs[depth-1].en->d_name) + 2;
+				cur_file_needing_alloc = 2 + strlen(cur_dir)
+				                         + strlen(dirs[depth-1].en->d_name);
 				if (cur_file_needing_alloc > cur_file_alloc) {
 					if ((cur_file = realloc(cur_file, cur_file_needing_alloc)) == NULL) {
 						fputs("Cannot allocate file path memory.\n", stderr);
@@ -361,7 +401,9 @@ char walk_for_fortune_files(const char* dir_path, Jars* js)
 					}
 				}
 				strcpy(cur_file, cur_dir);
-				strcat(cur_file, "/");
+				if (cur_dir[strlen(cur_dir) - 1] != '/') {
+					strcat(cur_file, "/");
+				}
 				strcat(cur_file, dirs[depth-1].en->d_name);
 				if (!ends_with_dot_dat(cur_file)) {
 					continue;
@@ -390,28 +432,36 @@ char walk_for_fortune_files(const char* dir_path, Jars* js)
 	return 1;
 }
 
-int main(void)
+int main(int argc, char* argv[])
 {
+	const char fortune_dir_path[] = "/usr/share/games/fortunes/dt/";
+	int getopt_option;
 	Jars js;
-
-/*
-	printf("%s %u\n", "test.dat", ends_with_dot_dat("test.dat"));
-	printf("%s %u\n", "test.dac", ends_with_dot_dat("test.dac"));
-	printf("%s %u\n", ".da", ends_with_dot_dat(".da"));
-	printf("%s %u\n", ".dat", ends_with_dot_dat(".dat"));
-	printf("%s %u\n", ".dac", ends_with_dot_dat(".dac"));
-*/
+	bool merely_list_fortune_files = false;
 
 	if (!Jars_init(&js, 0)) {
 		fputs("Cannot initialize list of fortune cookie files.\n", stderr);
 		return EXIT_FAILURE;
 	}
 
-	walk_for_fortune_files("/usr/share/games/fortunes/dt/", &js);
-/*
-	walk_for_fortune_files("/usr/share", &js);
-	walk_for_fortune_files("/this/does/not/exist", &js);
-*/
+	while ((getopt_option = getopt(argc, argv, "f")) != -1) {
+		switch (getopt_option) {
+		case 'f':
+			merely_list_fortune_files = true;
+		break;
+		default:
+			fprintf(stderr, "Usage: %s [-f]\n", argv[0]);
+		return EXIT_FAILURE;
+		}
+	}
+
+	walk_for_fortune_files(fortune_dir_path, &js);
+
+	if (merely_list_fortune_files) {
+		Jars_list(fortune_dir_path, &js);
+		Jars_free(&js);
+		return EXIT_SUCCESS;
+	}
 
 	srand(time(NULL) + getpid() + getppid());
 
@@ -421,5 +471,5 @@ int main(void)
 	}
 	Jars_free(&js);
 
-	return 0;
+	return EXIT_SUCCESS;
 }
