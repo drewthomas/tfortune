@@ -5,6 +5,7 @@
 #include <arpa/inet.h>  /* for uint32_t & htonl */
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <ctype.h>
 #include <dirent.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -130,12 +131,14 @@ unsigned char Jars_add(Jars* js, const char* dat_file_path)
 	return 1;
 }
 
-unsigned char Jars_fortune(const Jars* js, bool show_chosen_file)
+unsigned char Jars_fortune(const Jars* js, bool show_chosen_file, bool pause_after_displaying)
 {
+	size_t byte_idx;
 	float chance;
 	char* cookie_buf;
 	float cum_chance = 0.0;
 	char* dat;
+	double delay_time = 0.0;
 	FILE* fh;
 	unsigned int jar_no;
 	char *last_dot_ptr;
@@ -162,14 +165,14 @@ unsigned char Jars_fortune(const Jars* js, bool show_chosen_file)
 		/* If every available fortune cookie file was passed over, the
 		   program must have calculated the probabilities wrong, which means
 		   it miscounted the number of available fortune cookies. */
-		fprintf(stderr, "Miscounted the number of available fortune cookies as %u.\n", js->num_fortunes);
+		fprintf(stderr, "Miscounted the number of available fortune cookies "
+		        "as %u.\n", js->num_fortunes);
 		return 0;
 	}
 
 	dat = js->j[jar_no].dat;
 
 	if ((fh = fopen(dat, "rb")) == NULL) {
-		fprintf(stderr, " ---> \"%s\" %u\n", dat, jar_no);
 		fprintf(stderr, "Cannot open fortune data file %s.\n", dat);
 		return 0;
 	}
@@ -231,7 +234,8 @@ unsigned char Jars_fortune(const Jars* js, bool show_chosen_file)
 	   cookie has a delimiter and newline at the end of it, and if so,
 	   deduct 2 from the cookie's byte count to hide them. Note the
 	   assumption of Unix-style line endings. */
-	if ((num_bytes >= 2) && (cookie_buf[num_bytes-2] == js->j[jar_no].delim) && (cookie_buf[num_bytes-1] == '\n')) {
+	if ((num_bytes >= 2) && (cookie_buf[num_bytes-2] == js->j[jar_no].delim)
+	    && (cookie_buf[num_bytes-1] == '\n')) {
 		num_bytes -= 2;
 	}
 
@@ -249,6 +253,21 @@ unsigned char Jars_fortune(const Jars* js, bool show_chosen_file)
 	}
 
 	*last_dot_ptr = '.';
+
+	if (pause_after_displaying) {
+		/* Compute a time period for which to wait for the user to read
+		   the fortune cookie. Using the length of the entire cookie is a
+		   bad idea (it gives too long a waiting time for ASCII art); base
+		   the pause time on the number of letters and numeric digits. */
+		for (byte_idx = 0; byte_idx < num_bytes; byte_idx++) {
+			if (isalpha(cookie_buf[byte_idx])) {
+				delay_time += 0.06;
+			} else if (isdigit(cookie_buf[byte_idx])) {
+				delay_time += 0.03;
+			}
+		}
+		sleep(1 + (unsigned int) delay_time);
+	}
 
 	return 1;
 }
@@ -443,6 +462,7 @@ int main(int argc, char* argv[])
 	int getopt_option;
 	Jars js;
 	bool merely_list_fortune_files = false;
+	bool pause_after_displaying = false;
 	bool show_chosen_file = false;
 
 	if (!Jars_init(&js, 0)) {
@@ -450,7 +470,7 @@ int main(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 
-	while ((getopt_option = getopt(argc, argv, "cf")) != -1) {
+	while ((getopt_option = getopt(argc, argv, "cfw")) != -1) {
 		switch (getopt_option) {
 		case 'c':
 			show_chosen_file = true;
@@ -458,8 +478,11 @@ int main(int argc, char* argv[])
 		case 'f':
 			merely_list_fortune_files = true;
 		break;
+		case 'w':
+			pause_after_displaying = true;
+		break;
 		default:
-			fprintf(stderr, "Usage: %s [-cf]\n", argv[0]);
+			fprintf(stderr, "Usage: %s [-cfw]\n", argv[0]);
 		return EXIT_FAILURE;
 		}
 	}
@@ -474,7 +497,7 @@ int main(int argc, char* argv[])
 
 	srand(time(NULL) + getpid() + getppid());
 
-	if (!Jars_fortune(&js, show_chosen_file)) {
+	if (!Jars_fortune(&js, show_chosen_file, pause_after_displaying)) {
 		fputs("Failed to pick out a fortune cookie.\n", stderr);
 		return EXIT_FAILURE;
 	}
