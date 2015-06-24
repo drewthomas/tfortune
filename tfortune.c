@@ -1,7 +1,5 @@
 /* tfortune: fortune with recursive directory traversal */
 
-#define _BSD_SOURCE  /* for non-standard DT_DIR constant */
-
 #include <arpa/inet.h>  /* for uint32_t & htonl */
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -141,7 +139,7 @@ unsigned char Jars_fortune(const Jars* js, bool show_chosen_file, bool pause_aft
 	double delay_time = 0.0;
 	FILE* fh;
 	unsigned int jar_no;
-	char *last_dot_ptr;
+	char* last_dot_ptr;
 	size_t num_bytes;
 	unsigned int num_offsets_read;
 	uint32_t offsets[2];
@@ -257,13 +255,15 @@ unsigned char Jars_fortune(const Jars* js, bool show_chosen_file, bool pause_aft
 	if (pause_after_displaying) {
 		/* Compute a time period for which to wait for the user to read
 		   the fortune cookie. Using the length of the entire cookie is a
-		   bad idea (it gives too long a waiting time for ASCII art); base
-		   the pause time on the number of letters and numeric digits. */
+		   bad idea (it gives too long a waiting time for ASCII art);
+		   instead, use the number of lines, letters and numeric digits. */
 		for (byte_idx = 0; byte_idx < num_bytes; byte_idx++) {
 			if (isalpha(cookie_buf[byte_idx])) {
 				delay_time += 0.06;
 			} else if (isdigit(cookie_buf[byte_idx])) {
 				delay_time += 0.03;
+			} else if (cookie_buf[byte_idx] == '\n') {
+				delay_time += 0.05;
 			}
 		}
 		sleep(1 + (unsigned int) delay_time);
@@ -272,38 +272,132 @@ unsigned char Jars_fortune(const Jars* js, bool show_chosen_file, bool pause_aft
 	return 1;
 }
 
-void Jars_list(const char* dir_path, const Jars* js)
+bool paths_in_same_dir(const char* first, const char* second)
+{
+	char* p = strrchr(first, '/');
+	char* q = strrchr(second, '/');
+
+	/* If the paths `first` & `second` both lead to the same directory,
+	   the string from `first` to `p` should now match the string from
+	   `second` to `q`. So, for one thing, those two string should be the
+	   same length; check that. Then check that the two strings match. */
+	if ((p - first) != (q - second)) {
+		return false;
+	}
+	return !memcmp(first, second, p - first);
+}
+
+/* Display the selection probability and short name of the fortune file
+   pointed to by `j`. */
+void Jar_chance(const Jar* j, unsigned int total_num_fortunes, size_t dir_part_len)
 {
 	float chance;
-	const size_t dir_path_len = strlen(dir_path);
+	char* p;
+	char* path_end;
+
+	/* First the selection probability... */
+	chance = j->num_fortunes / (float) total_num_fortunes;
+	printf("    %5.2f%% ", 100.0 * chance);
+
+	/* ...then the file's name. Since `j` has the path to the fortune
+	   file's .dat rather than the fortune file's name itself, shave the
+	   last four characters off the path before displaying it, to
+	   eliminate the superfluous ".dat". */
+	p = j->dat + dir_part_len;
+	path_end = p + 1;
+	while (*path_end) {
+		path_end++;
+	}
+	for (; p < path_end - 4; p++) {
+		putchar(*p);
+	}
+	putchar('\n');
+}
+
+void Jars_list(const Jars* js)
+{
+	bool dir_already_noted;
+	unsigned int* dir_num_fortunes;
+	unsigned int dir_path_idx;
+	char** dir_paths;
+	size_t dir_part_len;
+	Jar* jar;
 	unsigned int jar_no;
-	char *p;
-	char *path_end;
+	unsigned int num_dir_paths;
 
-	if (!(js->num_fortunes)) {
-		printf("  0.00%% %s\n", dir_path);
+	if (!(js->count)) {
+		/* There are no fortune files in `js`. The caller should've
+		   handled this case -- when `js` is empty this function lacks
+		   the information to list the directories searched. */
 		return;
-	} else {
-		printf("100.00%% %s\n", dir_path);
 	}
 
-	for (jar_no = 0; jar_no < js->count; jar_no++) {
-		/* Display the selection probability and short name of fortune
-		   file `jar_no`. Since each file's name is stored as the path to
-		   its .dat file, shave the last four characters from the name
-		   before displaying it, to eliminate the superfluous ".dat". */
-		chance = js->j[jar_no].num_fortunes / (float) js->num_fortunes;
-		printf("    %5.2f%% ", 100.0 * chance);
-		p = js->j[jar_no].dat + dir_path_len;
-		path_end = p + 1;
-		while (*path_end) {
-			path_end++;
-		}
-		for (; p < path_end - 4; p++) {
-			putchar(*p);
-		}
-		putchar('\n');
+	/* When it lists the available fortune files, this function has to
+	   group them by directory, even though the fortune files from any
+	   given directory might not be in a contiguous sequence in `js->j`.
+	   This function therefore has to bear the burden of grouping files
+	   itself.
+
+	   It begins this task by recording in `dir_paths` each unique
+	   subdirectory represented in `js->j`, and recording in
+	   `dir_num_fortunes` the total number of fortune cookies in each
+	   unique subdirectory. */
+	if ((dir_paths = malloc(js->count * sizeof(char*))) == NULL) {
+		fputs("Can't allocate memory for directory list.\n", stderr);
+		return;
 	}
+	if ((dir_num_fortunes = malloc(js->count * sizeof(unsigned int))) == NULL) {
+		fputs("Can't allocate memory for fortune cookie counts by directory.\n", stderr);
+		free(dir_paths);
+		return;
+	}
+	dir_paths[0] = js->j[0].dat;
+	dir_num_fortunes[0] = js->j[0].num_fortunes;
+	num_dir_paths = 1;
+	for (jar_no = 1; jar_no < js->count; jar_no++) {
+		jar = &(js->j[jar_no]);
+		dir_already_noted = false;
+		for (dir_path_idx = 0; dir_path_idx < num_dir_paths; dir_path_idx++) {
+			if (paths_in_same_dir(dir_paths[dir_path_idx], jar->dat)) {
+				dir_num_fortunes[dir_path_idx] += jar->num_fortunes;
+				dir_already_noted = true;
+				break;
+			}
+		}
+		if (!dir_already_noted) {
+			dir_paths[num_dir_paths] = jar->dat;
+			dir_num_fortunes[num_dir_paths] = jar->num_fortunes;
+			num_dir_paths++;
+		}
+	}
+
+	/* Now `dir_paths` contains a pointer to a path in every unique
+	   subdirectory represented in `js->j`, it's time to iterate over that
+	   list of paths, extracting each subdirectory, picking out the fortune
+	   files in it, computing the subdirectory's total selection
+	   probability, displaying that and the subdirectory's path, then
+	   listing the files in that subdir. and their probabilities. */
+	for (dir_path_idx = 0; dir_path_idx < num_dir_paths; dir_path_idx++) {
+		dir_part_len = strrchr(dir_paths[dir_path_idx], '/')
+		               - dir_paths[dir_path_idx] + 1;
+		if (js->num_fortunes) {
+			printf("%5.2f%% ", 100.0 * dir_num_fortunes[dir_path_idx]
+			                   / (float) js->num_fortunes);
+		} else {
+			printf("  0.00%% ");
+		}
+		fwrite(dir_paths[dir_path_idx], dir_part_len, 1, stdout);
+		putchar('\n');
+		for (jar_no = 0; jar_no < js->count; jar_no++) {
+			jar = &(js->j[jar_no]);
+			if (paths_in_same_dir(dir_paths[dir_path_idx], jar->dat)) {
+				Jar_chance(jar, js->num_fortunes, dir_part_len);
+			}
+		}
+	}
+
+	free(dir_num_fortunes);
+	free(dir_paths);
 }
 
 void Jars_free(Jars* js)
@@ -327,7 +421,8 @@ unsigned char ends_with_dot_dat(const char* s)
 	if (len < 4) {
 		return 0;
 	}
-	return ((s[len-4] == '.') && (s[len-3] == 'd') && (s[len-2] == 'a') && (s[len-1] == 't'));
+	return ((s[len-4] == '.') && (s[len-3] == 'd')
+	        && (s[len-2] == 'a') && (s[len-1] == 't'));
 }
 
 unsigned char is_dot_or_dot_dot(const char* s)
@@ -341,12 +436,13 @@ unsigned char is_dot_or_dot_dot(const char* s)
 char walk_for_fortune_files(const char* dir_path, Jars* js)
 {
 	char* cur_dir;
-	char* cur_file = NULL;
-	size_t cur_file_alloc = 0;
-	size_t cur_file_needing_alloc;
+	char* cur_path = NULL;
+	size_t cur_path_alloc = 0;
+	size_t cur_path_needing_alloc;
 	unsigned int depth = 1;
 	Dire* dirs;
 	unsigned int dir_slots = 2;
+	struct stat info_about_path;
 	char* last_slash_ptr;
 
 	if ((dirs = malloc(dir_slots * sizeof(Dire))) == NULL) {
@@ -363,22 +459,68 @@ char walk_for_fortune_files(const char* dir_path, Jars* js)
 		free(dirs);
 		return 0;
 	}
-	strcat(cur_dir, dir_path);
+	strcpy(cur_dir, dir_path);
 
+	/* Recursively traverse directories, depth-first, looking for fortune
+	   cookie files (and of course subdirectories). */
 	while (depth) {
+
+		/* Iterate over every filesystem entry in the current directory. */
 		while ((dirs[depth-1].en = readdir(dirs[depth-1].d)) != NULL) {
-			if (dirs[depth-1].en->d_type == DT_DIR) {
-				if (is_dot_or_dot_dot(dirs[depth-1].en->d_name)) {
-					continue;
+
+			/* Skip the filesystem entries ./ and ../. */
+			if (is_dot_or_dot_dot(dirs[depth-1].en->d_name)) {
+				continue;
+			}
+
+			/* If necessary, (re)allocate memory for the current filesystem
+			   entry's full path. Allocation length explanation: length of
+			   the nonzero bytes in `cur_dir`, plus length of the nonzero
+			   bytes in `cur_path`, plus 2 bytes for the terminating zero
+			   byte and '/' separator. */
+			cur_path_needing_alloc = 2 + strlen(cur_dir)
+			                         + strlen(dirs[depth-1].en->d_name);
+			if (cur_path_needing_alloc > cur_path_alloc) {
+				if ((cur_path = realloc(cur_path, cur_path_needing_alloc)) == NULL) {
+					fprintf(stderr,
+					        "Cannot allocate %lu bytes for file path.\n",
+					        cur_path_needing_alloc);
+					free(dirs);
+					free(cur_dir);
+					if (cur_path != NULL) {
+						free(cur_path);
+					}
+					return 0;
 				}
+			}
+
+			/* Build the full path of the current filesystem entry. */
+			strcpy(cur_path, cur_dir);
+			if (cur_dir[strlen(cur_dir) - 1] != '/') {
+				strcat(cur_path, "/");
+			}
+			strcat(cur_path, dirs[depth-1].en->d_name);
+
+			/* With the full path in a string, it's finally possible to
+			   see what exactly is at the path. */
+			if (stat(cur_path, &info_about_path)) {
+				/* Then again, maybe it's still not possible. */
+				fprintf(stderr, "Cannot access information about path %s.\n",
+				        cur_path);
+				continue;
+			}
+
+			if (S_ISDIR(info_about_path.st_mode)) {
+				/* `cur_path` points to a subdirectory. Turn attention to
+				   that, allocating further memory if needed. */
 				if (depth == dir_slots) {
 					dir_slots *= 2;
 					if ((dirs = realloc(dirs, dir_slots * sizeof(Dire))) == NULL) {
 						fputs("Cannot reallocate directory record memory.\n", stderr);
 						free(dirs);
 						free(cur_dir);
-						if (cur_file != NULL) {
-							free(cur_file);
+						if (cur_path != NULL) {
+							free(cur_path);
 						}
 						return 0;
 					}
@@ -386,8 +528,8 @@ char walk_for_fortune_files(const char* dir_path, Jars* js)
 						fputs("Cannot reallocate directory name memory.\n", stderr);
 						free(dirs);
 						free(cur_dir);
-						if (cur_file != NULL) {
-							free(cur_file);
+						if (cur_path != NULL) {
+							free(cur_path);
 						}
 						return 0;
 					}
@@ -400,57 +542,46 @@ char walk_for_fortune_files(const char* dir_path, Jars* js)
 					fprintf(stderr, "Cannot open directory %s.\n", cur_dir);
 					free(dirs);
 					free(cur_dir);
-					if (cur_file != NULL) {
-						free(cur_file);
+					if (cur_path != NULL) {
+						free(cur_path);
 					}
 					return 0;
 				}
 				depth++;
 			} else {
-				/* Allocation length explanation: length of the nonzero bytes
-				   in `cur_dir`, plus length of the nonzero bytes in
-				   `cur_file`, plus 2 bytes for the terminating zero byte and
-				   the '/' separator. */
-				cur_file_needing_alloc = 2 + strlen(cur_dir)
-				                         + strlen(dirs[depth-1].en->d_name);
-				if (cur_file_needing_alloc > cur_file_alloc) {
-					if ((cur_file = realloc(cur_file, cur_file_needing_alloc)) == NULL) {
-						fputs("Cannot allocate file path memory.\n", stderr);
-						free(dirs);
-						free(cur_dir);
-						if (cur_file != NULL) {
-							free(cur_file);
-						}
-						return 0;
-					}
-				}
-				strcpy(cur_file, cur_dir);
-				if (cur_dir[strlen(cur_dir) - 1] != '/') {
-					strcat(cur_file, "/");
-				}
-				strcat(cur_file, dirs[depth-1].en->d_name);
-				if (!ends_with_dot_dat(cur_file)) {
+				/* `cur_path` points to a file. The files of interest here
+				   are strfile-generated .dat files, which presumably
+				   correspond to fortune files. Check that the file's name
+				   ends in ".dat"; if it does, add it to the list of such
+				   files, otherwise skip it. */
+				if (!ends_with_dot_dat(dirs[depth-1].en->d_name)) {
 					continue;
 				}
-				if (!Jars_add(js, cur_file)) {
-					fprintf(stderr, "Cannot add %s to fortune file list.\n", cur_file);
+				if (!Jars_add(js, cur_path)) {
+					fprintf(stderr, "Cannot add %s to fortune file list.\n",
+					        cur_path);
 				}
 			}
 		}
+
+		/* Having exhausted this (sub)directory's contents, close it and
+		   return attention to the parent directory. */
 		if (closedir(dirs[depth-1].d)) {
-			fprintf(stderr, "Cannot close directory stream for %s.\n", cur_dir);
+			fprintf(stderr, "Cannot close directory stream for %s.\n",
+			        cur_dir);
 		}
 		last_slash_ptr = strrchr(cur_dir, '/');
 		if (last_slash_ptr != NULL) {
 			*last_slash_ptr = '\0';
 		}
 		depth--;
+
 	}
 
 	free(dirs);
 	free(cur_dir);
-	if (cur_file != NULL) {
-		free(cur_file);
+	if (cur_path != NULL) {
+		free(cur_path);
 	}
 
 	return 1;
@@ -461,6 +592,7 @@ int main(int argc, char* argv[])
 	const char fortune_dir_path[] = "/usr/share/games/fortunes/dt/";
 	int getopt_option;
 	Jars js;
+	unsigned int orig_optind;
 	bool merely_list_fortune_files = false;
 	bool pause_after_displaying = false;
 	bool show_chosen_file = false;
@@ -487,11 +619,24 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	walk_for_fortune_files(fortune_dir_path, &js);
+	orig_optind = optind;
+	if (optind < argc) {
+		while (optind < argc) {
+			walk_for_fortune_files(argv[optind++], &js);
+		}
+	} else {
+		walk_for_fortune_files(fortune_dir_path, &js);
+	}
 
 	if (merely_list_fortune_files) {
-		Jars_list(fortune_dir_path, &js);
-		Jars_free(&js);
+		if (js.count) {
+			Jars_list(&js);
+			Jars_free(&js);
+		} else {
+			for (optind = orig_optind; optind < argc; optind++) {
+				printf("  0.00%% %s\n", argv[optind]);
+			}
+		}
 		return EXIT_SUCCESS;
 	}
 
