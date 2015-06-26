@@ -292,7 +292,8 @@ unsigned char Jars_fortune(const Jars* js, Options opts)
 				delay_time += 0.05;
 			}
 		}
-		sleep(1 + (unsigned int) delay_time);
+		delay_time = 1 + (unsigned int) (opts.w * delay_time);
+		sleep(delay_time);
 	}
 
 	return 1;
@@ -708,7 +709,7 @@ int main(int argc, char* argv[])
 		case 'c': opts.c = 1; break;
 		case 'e': opts.e = 1; break;
 		case 'f': opts.f = 1; break;
-		case 'w': opts.w = 1; break;
+		case 'w': opts.w++; break;  /* lengthen wait with each "-w" */
 		default:
 			fprintf(stderr, "Usage: %s [-cefw]\n", argv[0]);
 		return EXIT_FAILURE;
