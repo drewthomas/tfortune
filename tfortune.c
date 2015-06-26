@@ -158,8 +158,7 @@ unsigned char Jars_fortune(const Jars* js, Options opts)
 	float prob;
 
 	if (js->count == 0) {
-		fputs("Cannot pick a random fortune cookie from empty "
-		      "fortune cookie file list!\n", stderr);
+		fputs("List of available fortune cookie files is empty.\n", stderr);
 		return 0;
 	}
 
@@ -198,7 +197,10 @@ unsigned char Jars_fortune(const Jars* js, Options opts)
 
 	/* Jump to a uniformly randomly chosen fortune cookie in the
 	   selected file. */
-	if (fseek(fh, (long) (6 + js->j[jar_no].num_fortunes * (rand() / (RAND_MAX + 1.0))) * sizeof(uint32_t), SEEK_SET)) {
+	byte_idx = (size_t) (js->j[jar_no].num_fortunes
+	                     * (rand() / (RAND_MAX + 1.0)));
+	byte_idx = (6 + byte_idx) * sizeof(uint32_t);
+	if (fseek(fh, byte_idx, SEEK_SET)) {
 		fprintf(stderr,
 		        "Cannot seek in fortune data file %s for offsets.\n", dat);
 		return 0;
@@ -212,10 +214,10 @@ unsigned char Jars_fortune(const Jars* js, Options opts)
 		return 0;
 	} else if (num_offsets_read == 1) {
 		/* There was only one offset left to be read in the dat file stream,
-		   so that must have been the last offset in it, implying that that
-		   offset refers to the last fortune cookie in the file. Set the
-		   2nd offset to the fortune cookie file's size, indicating that
-		   this function should read from the first offset to EOF. */
+		   stream, so that must have been the last offset in it, implying
+		   that offset refers to the last fortune cookie in the file. Set
+		   the 2nd offset to the fortune cookie file's size, indicating
+		   that this function should read from the first offset to EOF. */
 		offsets[1] = js->j[jar_no].file_size;
 	}
 	num_bytes = offsets[1] - offsets[0];
@@ -225,7 +227,8 @@ unsigned char Jars_fortune(const Jars* js, Options opts)
 	}
 
 	if ((cookie_buf = malloc(num_bytes)) == NULL) {
-		fprintf(stderr, "Cannot allocate %lu bytes of memory for fortune cookie.\n", num_bytes);
+		fprintf(stderr, "Cannot allocate %lu bytes of memory "
+		        "for fortune cookie.\n", num_bytes);
 		return 0;
 	}
 
@@ -326,8 +329,8 @@ void Jar_chance(const Jar* j, const Jars* js, size_t dir_part_len, unsigned char
 	}
 	printf("    %5.2f%% ", 100.0 * chance);
 
-	/* ...then the file's name. Since `j` has the path to the fortune
-	   file's .dat rather than the fortune file's name itself, shave the
+	/* ...then the file's name. Since `j->dat` is the path to the dat
+	   file rather than the fortune file's name itself, shave the
 	   last four characters off the path before displaying it, to
 	   eliminate the superfluous ".dat". */
 	p = j->dat + dir_part_len;
@@ -464,7 +467,31 @@ unsigned char is_dot_or_dot_dot(const char* s)
 	return (s[1] == '\0') || ((s[1] == '.') && (s[2] == '\0'));
 }
 
-char walk_for_fortune_files(const char* dir_path, Jars* js)
+unsigned char Jars_build_dat_file_path_and_add(Jars* js, const char* path)
+{
+	char* dat_file_path;
+	size_t dat_file_path_len = 4 + strlen(path);
+
+	if ((dat_file_path = malloc(dat_file_path_len)) == NULL) {
+		fprintf(stderr, "Cannot allocate %lu bytes for data file path.\n",
+		        dat_file_path_len);
+		return 0;
+	}
+
+	strcpy(dat_file_path, path);
+	strcat(dat_file_path, ".dat");
+
+	if (!Jars_add(js, dat_file_path)) {
+		fprintf(stderr, "Cannot add %s to data file list.\n", dat_file_path);
+		free(dat_file_path);
+		return 0;
+	}
+
+	free(dat_file_path);
+	return 1;
+}
+
+unsigned char walk_for_fortune_files(const char* init_path, Jars* js)
 {
 	char* cur_dir;
 	char* cur_path = NULL;
@@ -476,21 +503,42 @@ char walk_for_fortune_files(const char* dir_path, Jars* js)
 	struct stat info_about_path;
 	char* last_slash_ptr;
 
+	/* Allocate initial memory for the directory hierarchy. */
 	if ((dirs = malloc(dir_slots * sizeof(Dire))) == NULL) {
 		fputs("Cannot allocate directory record memory.\n", stderr);
 		return 0;
 	}
 
-	if ((dirs[0].d = opendir(dir_path)) == NULL) {
+	/* Try opening the initial path as a directory. */
+	if ((dirs[0].d = opendir(init_path)) == NULL) {
+		/* The initial path wouldn't open as a directory. It could be
+		   non-existent or totally inaccessible, but it could just be a
+		   user-supplied path to a single fortune file. Try treating it
+		   as the latter. But first free the memory for the directory
+		   hierarchy, which won't be needed as no directory traversal
+		   will take place. */
+		free(dirs);
+		if (stat(init_path, &info_about_path)) {
+			fprintf(stderr, "Cannot access information about path %s.\n",
+			        init_path);
+			return 0;
+		}
+		if (S_ISREG(info_about_path.st_mode)) {
+			/* The starting path is indeed merely an ordinary file.
+			   Presumably it's a specific fortune cookie file the user
+			   wants to use; try adding the path to the list of
+			   fortune files. */
+			return Jars_build_dat_file_path_and_add(js, init_path);
+		}
 		return 0;
 	}
 
-	if ((cur_dir = malloc(strlen(dir_path) + 1 + dir_slots * (NAME_MAX+1))) == NULL) {
+	if ((cur_dir = malloc(strlen(init_path) + 1 + dir_slots * (NAME_MAX+1))) == NULL) {
 		fputs("Cannot allocate directory name memory.\n", stderr);
 		free(dirs);
 		return 0;
 	}
-	strcpy(cur_dir, dir_path);
+	strcpy(cur_dir, init_path);
 
 	/* Recursively traverse directories, depth-first, looking for fortune
 	   cookie files (and of course subdirectories). */
@@ -573,17 +621,25 @@ char walk_for_fortune_files(const char* dir_path, Jars* js)
 				}
 				strcat(cur_dir, dirs[depth-1].en->d_name);
 				if ((dirs[depth].d = opendir(cur_dir)) == NULL) {
+					/* The directory at `cur_dir` couldn't be opened.
+					   Try to chop the inaccessible subdirectory off
+					   the end of the current path and press on. */
 					fprintf(stderr, "Cannot open directory %s.\n", cur_dir);
-*strrchr(strrchr(cur_dir, '/'), '/') = '\0';
-break;
-/*
-					free(dirs);
-					free(cur_dir);
-					if (cur_path != NULL) {
-						free(cur_path);
+					last_slash_ptr = strrchr(strrchr(cur_dir, '/'), '/');
+					if (last_slash_ptr != NULL) {
+						*last_slash_ptr = '\0';
+						break;
+					} else {
+						/* I don't see how the flow of execution
+						   could ever arrive here, but if it
+						   somehow does, fail safely. */
+						free(dirs);
+						free(cur_dir);
+						if (cur_path != NULL) {
+							free(cur_path);
+						}
+						return 0;
 					}
-					return 0;
-*/
 				}
 				depth++;
 			} else {
@@ -596,7 +652,7 @@ break;
 					continue;
 				}
 				if (!Jars_add(js, cur_path)) {
-					fprintf(stderr, "Cannot add %s to fortune file list.\n",
+					fprintf(stderr, "Cannot add %s to data file list.\n",
 					        cur_path);
 				}
 			}
@@ -646,6 +702,7 @@ int main(int argc, char* argv[])
 	opts.f = 0;
 	opts.w = 0;
 
+	/* Interpret command-line flags. */
 	while ((getopt_option = getopt(argc, argv, "cefw")) != -1) {
 		switch (getopt_option) {
 		case 'c': opts.c = 1; break;
@@ -658,6 +715,7 @@ int main(int argc, char* argv[])
 		}
 	}
 
+	/* Process remaining arguments, which should be paths. */
 	orig_optind = optind;
 	if (optind < argc) {
 		while (optind < argc) {
@@ -668,6 +726,8 @@ int main(int argc, char* argv[])
 	}
 
 	if (opts.f) {
+		/* The user wants a list of files from which fortune cookies
+		   would be sampled, not a fortune cookie itself. */
 		if (js.count) {
 			Jars_list(&js, opts.e);
 			Jars_free(&js);
@@ -679,8 +739,9 @@ int main(int argc, char* argv[])
 		return EXIT_SUCCESS;
 	}
 
+	/* Seed the PRNG, display a random fortune, then free the memory
+	   allocated for the list of fortune files before finishing. */
 	srand(time(NULL) + getpid() + getppid());
-
 	if (!Jars_fortune(&js, opts)) {
 		fputs("Failed to pick out a fortune cookie.\n", stderr);
 		return EXIT_FAILURE;
