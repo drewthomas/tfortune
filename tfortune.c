@@ -653,7 +653,7 @@ int main(int argc, char* argv[])
 		case 'f': opts.f = 1; break;
 		case 'w': opts.w = 1; break;
 		default:
-			fprintf(stderr, "Usage: %s [-cfw]\n", argv[0]);
+			fprintf(stderr, "Usage: %s [-cefw]\n", argv[0]);
 		return EXIT_FAILURE;
 		}
 	}
