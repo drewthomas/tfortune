@@ -5,12 +5,13 @@
 #include <sys/types.h>
 #include <ctype.h>
 #include <dirent.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>  /* for time(), to seed rand() */
 #include <unistd.h>
+
+#define DEFAULT_FORTUNE_FILE_DIR "/usr/share/games/fortunes/dt/"
 
 #define STRFILE_HEADER_SIZE ((5 * sizeof(uint32_t)) + 1)
 
@@ -35,6 +36,13 @@ typedef struct Jars {
 	unsigned int num_fortunes;
 } Jars;
 
+typedef struct Options {
+	unsigned char c;  /* show file from which the fortune was sampled */
+	unsigned char e;  /* all fortune files have equal selection chances */
+	unsigned char f;  /* just list available fortune files */
+	unsigned char w;  /* wait, to give the user time to read the fortune */
+} Options;
+
 unsigned char Jars_init(Jars* js, unsigned int initial_capacity)
 {
 	js->count = 0;
@@ -44,7 +52,8 @@ unsigned char Jars_init(Jars* js, unsigned int initial_capacity)
 	if (js->capacity == 0) {
 		js->j = NULL;
 	} else if ((js->j = malloc(js->capacity * sizeof(Jar))) == NULL) {
-		fprintf(stderr, "Cannot allocate %lu bytes of memory for fortune file list.\n", js->capacity * sizeof(Jar));
+		fprintf(stderr, "Cannot allocate %lu bytes of memory "
+		        "for fortune file list.\n", js->capacity * sizeof(Jar));
 		return 0;
 	}
 	return 1;
@@ -64,7 +73,8 @@ unsigned char Jars_add(Jars* js, const char* dat_file_path)
 		js->capacity = (js->capacity + 1) * 2;
 		old_jar_list_ptr = js->j;
 		if ((js->j = realloc(js->j, js->capacity * sizeof(Jar))) == NULL) {
-			fprintf(stderr, "Cannot allocate %lu bytes of memory for fortune file list.\n", js->capacity * sizeof(Jar));
+			fprintf(stderr, "Cannot allocate %lu bytes of memory "
+			        "for fortune file list.\n", js->capacity * sizeof(Jar));
 			js->capacity = (js->capacity / 2) - 1;
 			js->j = old_jar_list_ptr;
 			return 0;
@@ -75,7 +85,8 @@ unsigned char Jars_add(Jars* js, const char* dat_file_path)
 	   this jar's metadata, then copy its dat file's path into it. */
 	j = &((js->j)[js->count]);
 	if ((j->dat = strdup(dat_file_path)) == NULL) {
-		fprintf(stderr, "Cannot copy path to fortune data file %s.\n", dat_file_path);
+		fprintf(stderr, "Cannot copy path to fortune data file %s.\n",
+		        dat_file_path);
 		return 0;
 	}
 
@@ -86,7 +97,8 @@ unsigned char Jars_add(Jars* js, const char* dat_file_path)
 		return 0;
 	}
 	if (fread(dat_header, STRFILE_HEADER_SIZE, 1, fh) != 1) {
-		fprintf(stderr, "Strfile header of %s is the wrong size.\n", dat_file_path);
+		fprintf(stderr, "Strfile header of %s is the wrong size.\n",
+		        dat_file_path);
 		free(j->dat);
 		return 0;
 	}
@@ -129,7 +141,7 @@ unsigned char Jars_add(Jars* js, const char* dat_file_path)
 	return 1;
 }
 
-unsigned char Jars_fortune(const Jars* js, bool show_chosen_file, bool pause_after_displaying)
+unsigned char Jars_fortune(const Jars* js, Options opts)
 {
 	size_t byte_idx;
 	float chance;
@@ -143,7 +155,7 @@ unsigned char Jars_fortune(const Jars* js, bool show_chosen_file, bool pause_aft
 	size_t num_bytes;
 	unsigned int num_offsets_read;
 	uint32_t offsets[2];
-	float prob = rand() / (float) RAND_MAX;
+	float prob;
 
 	if (js->count == 0) {
 		fputs("Cannot pick a random fortune cookie from empty "
@@ -151,20 +163,29 @@ unsigned char Jars_fortune(const Jars* js, bool show_chosen_file, bool pause_aft
 		return 0;
 	}
 
-	for (jar_no = 0; jar_no < js->count; jar_no++) {
-		chance = js->j[jar_no].num_fortunes / (float) js->num_fortunes;
-		if (cum_chance + chance >= prob) {
-			break;
+	/* Choose a fortune cookie file at random. */
+	if (opts.e) {
+		/* Choose uniformly randomly from the files. */
+		jar_no = js->count * (rand() / (RAND_MAX + 1.0));
+	} else {
+		/* Choose a file with probability in proportion to the number
+		   of fortune cookies it has. */
+		prob = rand() / (float) RAND_MAX;
+		for (jar_no = 0; jar_no < js->count; jar_no++) {
+			chance = js->j[jar_no].num_fortunes / (float) js->num_fortunes;
+			if (cum_chance + chance >= prob) {
+				break;
+			}
+			cum_chance += chance;
 		}
-		cum_chance += chance;
 	}
 
 	if (jar_no >= js->count) {
 		/* If every available fortune cookie file was passed over, the
-		   program must have calculated the probabilities wrong, which means
-		   it miscounted the number of available fortune cookies. */
-		fprintf(stderr, "Miscounted the number of available fortune cookies "
-		        "as %u.\n", js->num_fortunes);
+		   program must have calculated the probabilities wrongly, which
+		   means it miscounted the number of available fortune cookies. */
+		fprintf(stderr, "Miscounted the number of available fortune "
+		        "cookies as %u.\n", js->num_fortunes);
 		return 0;
 	}
 
@@ -175,6 +196,8 @@ unsigned char Jars_fortune(const Jars* js, bool show_chosen_file, bool pause_aft
 		return 0;
 	}
 
+	/* Jump to a uniformly randomly chosen fortune cookie in the
+	   selected file. */
 	if (fseek(fh, (long) (6 + js->j[jar_no].num_fortunes * (rand() / (RAND_MAX + 1.0))) * sizeof(uint32_t), SEEK_SET)) {
 		fprintf(stderr,
 		        "Cannot seek in fortune data file %s for offsets.\n", dat);
@@ -185,7 +208,7 @@ unsigned char Jars_fortune(const Jars* js, bool show_chosen_file, bool pause_aft
 	offsets[0] = htonl(offsets[0]);
 	offsets[1] = htonl(offsets[1]);
 	if (num_offsets_read == 0) {
-		fprintf(stderr, "Cannot read offsets from fortune data file %s.\n", dat);
+		fprintf(stderr, "Cannot read offsets from data file %s.\n", dat);
 		return 0;
 	} else if (num_offsets_read == 1) {
 		/* There was only one offset left to be read in the dat file stream,
@@ -237,7 +260,7 @@ unsigned char Jars_fortune(const Jars* js, bool show_chosen_file, bool pause_aft
 		num_bytes -= 2;
 	}
 
-	if (show_chosen_file) {
+	if (opts.c) {
 		printf("%s\n%%\n", dat);
 	}
 
@@ -252,7 +275,7 @@ unsigned char Jars_fortune(const Jars* js, bool show_chosen_file, bool pause_aft
 
 	*last_dot_ptr = '.';
 
-	if (pause_after_displaying) {
+	if (opts.w) {
 		/* Compute a time period for which to wait for the user to read
 		   the fortune cookie. Using the length of the entire cookie is a
 		   bad idea (it gives too long a waiting time for ASCII art);
@@ -272,7 +295,7 @@ unsigned char Jars_fortune(const Jars* js, bool show_chosen_file, bool pause_aft
 	return 1;
 }
 
-bool paths_in_same_dir(const char* first, const char* second)
+unsigned char paths_in_same_dir(const char* first, const char* second)
 {
 	char* p = strrchr(first, '/');
 	char* q = strrchr(second, '/');
@@ -282,21 +305,25 @@ bool paths_in_same_dir(const char* first, const char* second)
 	   `second` to `q`. So, for one thing, those two string should be the
 	   same length; check that. Then check that the two strings match. */
 	if ((p - first) != (q - second)) {
-		return false;
+		return 0;
 	}
 	return !memcmp(first, second, p - first);
 }
 
 /* Display the selection probability and short name of the fortune file
    pointed to by `j`. */
-void Jar_chance(const Jar* j, unsigned int total_num_fortunes, size_t dir_part_len)
+void Jar_chance(const Jar* j, const Jars* js, size_t dir_part_len, unsigned char e_opt)
 {
 	float chance;
 	char* p;
 	char* path_end;
 
 	/* First the selection probability... */
-	chance = j->num_fortunes / (float) total_num_fortunes;
+	if (e_opt) {
+		chance = 1.0 / (float) js->count;
+	} else {
+		chance = j->num_fortunes / (float) js->num_fortunes;
+	}
 	printf("    %5.2f%% ", 100.0 * chance);
 
 	/* ...then the file's name. Since `j` has the path to the fortune
@@ -314,9 +341,9 @@ void Jar_chance(const Jar* j, unsigned int total_num_fortunes, size_t dir_part_l
 	putchar('\n');
 }
 
-void Jars_list(const Jars* js)
+void Jars_list(const Jars* js, unsigned char e_opt)
 {
-	bool dir_already_noted;
+	unsigned char dir_already_noted;
 	unsigned int* dir_num_fortunes;
 	unsigned int dir_path_idx;
 	char** dir_paths;
@@ -332,11 +359,11 @@ void Jars_list(const Jars* js)
 		return;
 	}
 
-	/* When it lists the available fortune files, this function has to
-	   group them by directory, even though the fortune files from any
-	   given directory might not be in a contiguous sequence in `js->j`.
-	   This function therefore has to bear the burden of grouping files
-	   itself.
+	/* When it lists the available fortune files, this function has
+	   to group them by directory, even though the fortune files in a
+	   subdirectory might not be in a contiguous sequence in `js->j`.
+	   This function therefore has to bear the burden of grouping
+	   files itself.
 
 	   It begins this task by recording in `dir_paths` each unique
 	   subdirectory represented in `js->j`, and recording in
@@ -356,11 +383,11 @@ void Jars_list(const Jars* js)
 	num_dir_paths = 1;
 	for (jar_no = 1; jar_no < js->count; jar_no++) {
 		jar = &(js->j[jar_no]);
-		dir_already_noted = false;
+		dir_already_noted = 0;
 		for (dir_path_idx = 0; dir_path_idx < num_dir_paths; dir_path_idx++) {
 			if (paths_in_same_dir(dir_paths[dir_path_idx], jar->dat)) {
 				dir_num_fortunes[dir_path_idx] += jar->num_fortunes;
-				dir_already_noted = true;
+				dir_already_noted = 1;
 				break;
 			}
 		}
@@ -381,8 +408,12 @@ void Jars_list(const Jars* js)
 		dir_part_len = strrchr(dir_paths[dir_path_idx], '/')
 		               - dir_paths[dir_path_idx] + 1;
 		if (js->num_fortunes) {
-			printf("%5.2f%% ", 100.0 * dir_num_fortunes[dir_path_idx]
-			                   / (float) js->num_fortunes);
+			if (e_opt) {
+				printf("%5.2f%% ", 100.0 / (float) num_dir_paths);
+			} else {
+				printf("%5.2f%% ", 100.0 * dir_num_fortunes[dir_path_idx]
+				                   / (float) js->num_fortunes);
+			}
 		} else {
 			printf("  0.00%% ");
 		}
@@ -391,7 +422,7 @@ void Jars_list(const Jars* js)
 		for (jar_no = 0; jar_no < js->count; jar_no++) {
 			jar = &(js->j[jar_no]);
 			if (paths_in_same_dir(dir_paths[dir_path_idx], jar->dat)) {
-				Jar_chance(jar, js->num_fortunes, dir_part_len);
+				Jar_chance(jar, js, dir_part_len, e_opt);
 			}
 		}
 	}
@@ -504,7 +535,10 @@ char walk_for_fortune_files(const char* dir_path, Jars* js)
 			/* With the full path in a string, it's finally possible to
 			   see what exactly is at the path. */
 			if (stat(cur_path, &info_about_path)) {
-				/* Then again, maybe it's still not possible. */
+				/* Then again, maybe it's still not possible.
+				   (This can happen if the program gets trapped by a
+				   cyclic path produced by a link -- eventually `stat`
+				   throws the program for an `ELOOP`.) */
 				fprintf(stderr, "Cannot access information about path %s.\n",
 				        cur_path);
 				continue;
@@ -540,12 +574,16 @@ char walk_for_fortune_files(const char* dir_path, Jars* js)
 				strcat(cur_dir, dirs[depth-1].en->d_name);
 				if ((dirs[depth].d = opendir(cur_dir)) == NULL) {
 					fprintf(stderr, "Cannot open directory %s.\n", cur_dir);
+*strrchr(strrchr(cur_dir, '/'), '/') = '\0';
+break;
+/*
 					free(dirs);
 					free(cur_dir);
 					if (cur_path != NULL) {
 						free(cur_path);
 					}
 					return 0;
+*/
 				}
 				depth++;
 			} else {
@@ -589,30 +627,31 @@ char walk_for_fortune_files(const char* dir_path, Jars* js)
 
 int main(int argc, char* argv[])
 {
-	const char fortune_dir_path[] = "/usr/share/games/fortunes/dt/";
 	int getopt_option;
 	Jars js;
 	unsigned int orig_optind;
-	bool merely_list_fortune_files = false;
-	bool pause_after_displaying = false;
-	bool show_chosen_file = false;
+	Options opts;
 
-	if (!Jars_init(&js, 0)) {
+	/* Initialize the list of fortune cookie files with enough memory to
+	   store metadata for 99 files. (More memory will be allocated for
+	   the list later if needed. ) */
+	if (!Jars_init(&js, 99)) {
 		fputs("Cannot initialize list of fortune cookie files.\n", stderr);
 		return EXIT_FAILURE;
 	}
 
-	while ((getopt_option = getopt(argc, argv, "cfw")) != -1) {
+	/* Initialize the list of command-line options with default values. */
+	opts.c = 0;
+	opts.e = 0;
+	opts.f = 0;
+	opts.w = 0;
+
+	while ((getopt_option = getopt(argc, argv, "cefw")) != -1) {
 		switch (getopt_option) {
-		case 'c':
-			show_chosen_file = true;
-		break;
-		case 'f':
-			merely_list_fortune_files = true;
-		break;
-		case 'w':
-			pause_after_displaying = true;
-		break;
+		case 'c': opts.c = 1; break;
+		case 'e': opts.e = 1; break;
+		case 'f': opts.f = 1; break;
+		case 'w': opts.w = 1; break;
 		default:
 			fprintf(stderr, "Usage: %s [-cfw]\n", argv[0]);
 		return EXIT_FAILURE;
@@ -625,12 +664,12 @@ int main(int argc, char* argv[])
 			walk_for_fortune_files(argv[optind++], &js);
 		}
 	} else {
-		walk_for_fortune_files(fortune_dir_path, &js);
+		walk_for_fortune_files(DEFAULT_FORTUNE_FILE_DIR, &js);
 	}
 
-	if (merely_list_fortune_files) {
+	if (opts.f) {
 		if (js.count) {
-			Jars_list(&js);
+			Jars_list(&js, opts.e);
 			Jars_free(&js);
 		} else {
 			for (optind = orig_optind; optind < argc; optind++) {
@@ -642,7 +681,7 @@ int main(int argc, char* argv[])
 
 	srand(time(NULL) + getpid() + getppid());
 
-	if (!Jars_fortune(&js, show_chosen_file, pause_after_displaying)) {
+	if (!Jars_fortune(&js, opts)) {
 		fputs("Failed to pick out a fortune cookie.\n", stderr);
 		return EXIT_FAILURE;
 	}
