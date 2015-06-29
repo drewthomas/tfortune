@@ -26,7 +26,7 @@ typedef struct Jar {
 	unsigned int min_len;
 	unsigned int max_len;
 	char delim;
-	unsigned long int file_size;
+	off_t file_size;
 } Jar;
 
 typedef struct Jars {
@@ -73,7 +73,7 @@ unsigned char Jars_add(Jars* js, const char* dat_file_path)
 		js->capacity = (js->capacity + 1) * 2;
 		old_jar_list_ptr = js->j;
 		if ((js->j = realloc(js->j, js->capacity * sizeof(Jar))) == NULL) {
-			fprintf(stderr, "Cannot allocate %lu bytes of memory "
+			fprintf(stderr, "Cannot reallocate %lu bytes of memory "
 			        "for fortune file list.\n", js->capacity * sizeof(Jar));
 			js->capacity = (js->capacity / 2) - 1;
 			js->j = old_jar_list_ptr;
@@ -135,8 +135,8 @@ unsigned char Jars_add(Jars* js, const char* dat_file_path)
 
 	/* The jar's been successfully added to the jar list, so increment the
 	   jar list's jar count and number of available fortune cookies. */
-	(js->count)++;
-	(js->num_fortunes) += j->num_fortunes;
+	js->count++;
+	js->num_fortunes += j->num_fortunes;
 
 	return 1;
 }
@@ -289,7 +289,7 @@ unsigned char Jars_fortune(const Jars* js, Options opts)
 			} else if (isdigit(cookie_buf[byte_idx])) {
 				delay_time += 0.03;
 			} else if (cookie_buf[byte_idx] == '\n') {
-				delay_time += 0.05;
+				delay_time += 0.07;
 			}
 		}
 		delay_time = 1 + (unsigned int) (opts.w * delay_time);
@@ -304,6 +304,12 @@ unsigned char paths_in_same_dir(const char* first, const char* second)
 	char* p = strrchr(first, '/');
 	char* q = strrchr(second, '/');
 
+	/* The paths need not have slashes in them. One or both of them
+	   might be the name of a file in the current directory. */
+	if ((p == NULL) || (q == NULL)) {
+		return (unsigned char) ((p == NULL) && (q == NULL));
+	}
+
 	/* If the paths `first` & `second` both lead to the same directory,
 	   the string from `first` to `p` should now match the string from
 	   `second` to `q`. So, for one thing, those two string should be the
@@ -311,11 +317,10 @@ unsigned char paths_in_same_dir(const char* first, const char* second)
 	if ((p - first) != (q - second)) {
 		return 0;
 	}
-	return !memcmp(first, second, p - first);
+	return (unsigned char) !memcmp(first, second, p - first);
 }
 
-/* Display the selection probability and short name of the fortune file
-   pointed to by `j`. */
+/* Display the selection probability and short name of a Jar's file. */
 void Jar_chance(const Jar* j, const Jars* js, size_t dir_part_len, unsigned char e_opt)
 {
 	float chance;
@@ -354,12 +359,13 @@ void Jars_list(const Jars* js, unsigned char e_opt)
 	size_t dir_part_len;
 	Jar* jar;
 	unsigned int jar_no;
+	char* last_slash;
 	unsigned int num_dir_paths;
 
 	if (!(js->count)) {
-		/* There are no fortune files in `js`. The caller should've
-		   handled this case -- when `js` is empty this function lacks
-		   the information to list the directories searched. */
+		/* `js` has no jars. The caller should've handled this case
+		   itself -- when `js` is empty this function lacks the
+		   information to list the directories searched. */
 		return;
 	}
 
@@ -409,8 +415,6 @@ void Jars_list(const Jars* js, unsigned char e_opt)
 	   probability, displaying that and the subdirectory's path, then
 	   listing the files in that subdir. and their probabilities. */
 	for (dir_path_idx = 0; dir_path_idx < num_dir_paths; dir_path_idx++) {
-		dir_part_len = strrchr(dir_paths[dir_path_idx], '/')
-		               - dir_paths[dir_path_idx] + 1;
 		if (js->num_fortunes) {
 			if (e_opt) {
 				printf("%5.2f%% ", 100.0 / (float) num_dir_paths);
@@ -421,8 +425,15 @@ void Jars_list(const Jars* js, unsigned char e_opt)
 		} else {
 			printf("  0.00%% ");
 		}
-		fwrite(dir_paths[dir_path_idx], dir_part_len, 1, stdout);
-		putchar('\n');
+		last_slash = strrchr(dir_paths[dir_path_idx], '/');
+		if (last_slash != NULL) {
+			dir_part_len = last_slash - dir_paths[dir_path_idx] + 1;
+			fwrite(dir_paths[dir_path_idx], dir_part_len, 1, stdout);
+			putchar('\n');
+		} else {
+			dir_part_len = 0;
+			puts("./");
+		}
 		for (jar_no = 0; jar_no < js->count; jar_no++) {
 			jar = &(js->j[jar_no]);
 			if (paths_in_same_dir(dir_paths[dir_path_idx], jar->dat)) {
@@ -563,7 +574,7 @@ unsigned char walk_for_fortune_files(const char* init_path, Jars* js)
 			if (cur_path_needing_alloc > cur_path_alloc) {
 				if ((cur_path = realloc(cur_path, cur_path_needing_alloc)) == NULL) {
 					fprintf(stderr,
-					        "Cannot allocate %lu bytes for file path.\n",
+					        "Cannot reallocate %lu bytes for file path.\n",
 					        cur_path_needing_alloc);
 					free(dirs);
 					free(cur_dir);
@@ -599,7 +610,8 @@ unsigned char walk_for_fortune_files(const char* init_path, Jars* js)
 				if (depth == dir_slots) {
 					dir_slots *= 2;
 					if ((dirs = realloc(dirs, dir_slots * sizeof(Dire))) == NULL) {
-						fputs("Cannot reallocate directory record memory.\n", stderr);
+						fputs("Cannot reallocate directory record memory.\n",
+						      stderr);
 						free(dirs);
 						free(cur_dir);
 						if (cur_path != NULL) {
@@ -608,7 +620,8 @@ unsigned char walk_for_fortune_files(const char* init_path, Jars* js)
 						return 0;
 					}
 					if ((cur_dir = realloc(cur_dir, strlen(cur_dir) + 1 + (NAME_MAX+1) * dir_slots)) == NULL) {
-						fputs("Cannot reallocate directory name memory.\n", stderr);
+						fputs("Cannot reallocate directory name memory.\n",
+						      stderr);
 						free(dirs);
 						free(cur_dir);
 						if (cur_path != NULL) {
