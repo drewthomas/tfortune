@@ -157,8 +157,13 @@ unsigned char Jars_fortune(const Jars* js, Options opts)
 	uint32_t offsets[2];
 	float prob;
 
-	if (js->count == 0) {
+	if (!(js->count)) {
 		fputs("List of available fortune cookie files is empty.\n", stderr);
+		return 0;
+	}
+
+	if (!(js->num_fortunes)) {
+		fputs("The available fortune cookie files are all empty.\n", stderr);
 		return 0;
 	}
 
@@ -704,7 +709,7 @@ int main(int argc, char* argv[])
 
 	/* Initialize the list of fortune cookie files with enough memory to
 	   store metadata for 99 files. (More memory will be allocated for
-	   the list later if needed. ) */
+	   the list later if needed.) */
 	if (!Jars_init(&js, 99)) {
 		fputs("Cannot initialize list of fortune cookie files.\n", stderr);
 		return EXIT_FAILURE;
