@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.1.2//EN"
+                   "http://www.oasis-open.org/docbook/xml/4.1.2/docbookx.dtd">
+
+<refentry>
+
+<refmeta>
+<refentrytitle>tfortune</refentrytitle>
+<manvolnum>6</manvolnum>
+</refmeta>
+
+<refnamediv id="name">
+<refname>tfortune</refname>
+<refpurpose>fortune with recursive directory traversal</refpurpose>
+</refnamediv>
+
+<refsynopsisdiv id="synopsis">
+<cmdsynopsis>
+<command>tfortune</command>
+<arg choice="opt">-c</arg>
+<arg choice="opt">-e</arg>
+<arg choice="opt">-f</arg>
+<arg choice="opt">-w</arg>
+<!--
+<arg choice="opt">-n <replaceable>width</replaceable></arg>
+-->
+<arg choice="opt" rep="repeat">path</arg>
+</cmdsynopsis>
+</refsynopsisdiv>
+
+<refsect1 id='description'>
+<title>Description</title>
+<para>
+<command>tfortune</command> samples a random fortune cookie (or other snippet of text) from text files in
+<citerefentry>
+<refentrytitle>fortune</refentrytitle><manvolnum>6</manvolnum>
+</citerefentry>
+format, and writes it to standard output.
+<command>tfortune</command> is a partial reimplementation of
+<citerefentry>
+<refentrytitle>fortune</refentrytitle><manvolnum>6</manvolnum>
+</citerefentry>
+that adds the feature of recursive directory traversal; <command>tfortune</command> scours an entire directory hierarchy for text files from which to sample. The user may specify an alternative directory hierarchy to search by giving its <replaceable>path</replaceable> as an argument.
+</para>
+<variablelist remap="IP">
+<varlistentry>
+<term><option>-c</option></term>
+<listitem>
+<para>Write not only the cookie but also its file of origin.</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term><option>-e</option></term>
+<listitem>
+<para>Give every fortune cookie file an equal chance of being sampled from, regardless of size (instead of choosing a file with probability proportional to the number of fortunes it has).</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term><option>-f</option></term>
+<listitem>
+<para>Instead of displaying a fortune cookie, list the files from which one would've been sampled, along with each file's chance of being chosen.</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term><option>-w</option></term>
+<listitem>
+<para>Give the user time to read the written cookie by waiting for a bit before exiting. (Slower readers may repeat this option to extend the waiting time.)</para>
+</listitem>
+</varlistentry>
+</variablelist>
+<para>
+By default <command>tfortune</command> interprets <replaceable>path</replaceable> as a directory, but <replaceable>path</replaceable> may be a regular file, in which case <command>tfortune</command> presumes it to be a fortune cookie file it should add to its list.
+</para>
+</refsect1>
+
+<para>
+Given the <option>-c</option> option, <command>tfortune</command>'s writes the sampled file's full path, unlike
+<citerefentry>
+<refentrytitle>fortune</refentrytitle><manvolnum>6</manvolnum>
+</citerefentry>,
+which writes only the file's name.
+Because <command>tfortune</command> may scan multiple directories, a file's name alone may not uniquely identify it, and if so mimicking
+<citerefentry>
+<refentrytitle>fortune</refentrytitle><manvolnum>6</manvolnum>
+</citerefentry>'s
+behaviour would introduce ambiguity. For the same reason, when given only a file name as an argument, <command>tfortune</command> treats it like any other path &mdash; if the file isn't found, <command>tfortune</command> does not try to locate the file in the default fortune cookie directories as
+<citerefentry>
+<refentrytitle>fortune</refentrytitle><manvolnum>6</manvolnum>
+</citerefentry>
+does.
+</para>
+
+<para>
+With the <option>-w</option> option, <command>tfortune</command> decides on a waiting time in a more sophisticated way than 
+<citerefentry>
+<refentrytitle>fortune</refentrytitle><manvolnum>6</manvolnum>
+</citerefentry>,
+which pauses for a time proportional to the number of bytes in the fortune cookie (leading to inordinately long waits if the fortune cookie is ASCII art).
+</para>
+
+<refsect1 id="limitations">
+<title>Limitations</title>
+
+<para>
+Where it implements features of 
+<citerefentry>
+<refentrytitle>fortune</refentrytitle><manvolnum>6</manvolnum>
+</citerefentry>,
+<command>tfortune</command> tries to mimic its behaviour if that's sensible, but there are some differences, and most options
+(<option>-a</option>, <option>-i</option>, <option>-l</option>, <option>-m</option>, <option>-n</option>, <option>-o</option>, <option>-s</option> and <option>-u</option>)
+are simply unimplemented.
+</para>
+
+<para>
+<command>tfortune</command> does not recognize 
+<citerefentry>
+<refentrytitle>fortune</refentrytitle><manvolnum>6</manvolnum>
+</citerefentry>'s
+(inevitably somewhat arbitrary) distinction between offensive and inoffensive fortune cookies, and is content to sample from any and all compatible files it finds.
+<command>tfortune</command> also does not understand percentage arguments
+(which
+<citerefentry>
+<refentrytitle>fortune</refentrytitle><manvolnum>6</manvolnum>
+</citerefentry>
+interprets as selection probabilities for a subsequent file name argument) &mdash; it just treats them as file names.
+</para>
+
+<para>
+If <command>tfortune</command> comes across a valid file multiple times, it dutifully adds the file repeatedly to its list.
+<command>tfortune</command> does not check for duplicates on its list of files from which to sample, on the assumption that if the user tells the program to traverse a directory twice or to record a file twice, the user knows what they're doing.
+</para>
+
+</refsect1>
+
+<refsect1 id="author">
+<title>Author</title>
+<para>Written by Drew Thomas.</para>
+</refsect1>
+
+<refsect1 id="copyright">
+<title>Copyright</title>
+<para>Both <command>tfortune</command> and this documentation are public domain; the author disclaims all copyright.</para>
+</refsect1>
+
+<refsect1 id="seealso">
+<title>See also</title>
+<para>
+<citerefentry>
+<refentrytitle>fortune</refentrytitle><manvolnum>6</manvolnum>
+</citerefentry>,
+<citerefentry>
+<refentrytitle>strfile</refentrytitle><manvolnum>1</manvolnum>
+</citerefentry>
+</para>
+</refsect1>
+
+</refentry>

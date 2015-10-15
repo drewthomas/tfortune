@@ -1,2 +1,5 @@
 # don't try to track the compiled program itself
 tfortune
+# don't track the final, diff-unfriendly documentation files
+tfortune.6.gz
+tfortune.ps
