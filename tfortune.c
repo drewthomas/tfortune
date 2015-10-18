@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <ctype.h>
 #include <dirent.h>
+#include <limits.h>  /* for NAME_MAX */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

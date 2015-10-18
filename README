@@ -1,0 +1,23 @@
+NAME
+       tfortune - fortune with recursive directory traversal
+SYNOPSIS
+       tfortune [-c] [-e] [-f] [-w] [path]...
+DESCRIPTION
+       tfortune  samples  a  random  fortune cookie (or other snippet of text)
+       from text files in fortune(6) format, and writes it to standard output.
+       tfortune is a partial reimplementation of fortune(6) that adds the fea‐
+       ture of recursive directory traversal; tfortune scours an entire direc‐
+       tory hierarchy for text files from which to sample. The user may speci‐
+       fy an alternative directory hierarchy to search by giving its  path  as
+       an argument.
+LIMITATIONS
+       Where it implements features of fortune(6), tfortune tries to mimic its
+       behaviour if that's sensible, but there are some differences, and  most
+       options (-a, -i, -l, -m, -n, -o, -s and -u) are simply unimplemented.
+AUTHOR
+       Written by Drew Thomas.
+COPYRIGHT
+       Both tfortune and this documentation are public domain; the author dis‐
+       claims all copyright.
+SEE ALSO
+       fortune(6), strfile(1)
