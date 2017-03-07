@@ -488,7 +488,7 @@ unsigned char is_dot_or_dot_dot(const char* s)
 unsigned char Jars_build_dat_file_path_and_add(Jars* js, const char* path)
 {
 	char* dat_file_path;
-	size_t dat_file_path_len = 4 + strlen(path);
+	size_t dat_file_path_len = 5 + strlen(path);
 
 	if ((dat_file_path = malloc(dat_file_path_len)) == NULL) {
 		fprintf(stderr, "Cannot allocate %lu bytes for data file path.\n",

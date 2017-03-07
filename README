@@ -11,9 +11,10 @@ DESCRIPTION
        fy an alternative directory hierarchy to search by giving its  path  as
        an argument.
 LIMITATIONS
-       Where it implements features of fortune(6), tfortune tries to mimic its
-       behaviour if that's sensible, but there are some differences, and  most
-       options (-a, -i, -l, -m, -n, -o, -s and -u) are simply unimplemented.
+       Where  tfortune	implements  features  of fortune(6), tfortune tries to
+       mimic its behaviour if that's sensible, but there are some differences,
+       and  most  options (-a, -i, -l, -m, -n, -o, -s and -u) are simply unim‐
+       plemented.
 AUTHOR
        Written by Drew Thomas.
 COPYRIGHT

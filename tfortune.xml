@@ -91,7 +91,7 @@ does.
 </para>
 
 <para>
-With the <option>-w</option> option, <command>tfortune</command> decides on a waiting time in a more sophisticated way than 
+With the <option>-w</option> option, <command>tfortune</command> decides on a waiting time in a more sophisticated way than
 <citerefentry>
 <refentrytitle>fortune</refentrytitle><manvolnum>6</manvolnum>
 </citerefentry>,
@@ -102,7 +102,7 @@ which pauses for a time proportional to the number of bytes in the fortune cooki
 <title>Limitations</title>
 
 <para>
-Where it implements features of 
+Where <command>tfortune</command> implements features of 
 <citerefentry>
 <refentrytitle>fortune</refentrytitle><manvolnum>6</manvolnum>
 </citerefentry>,
@@ -112,7 +112,7 @@ are simply unimplemented.
 </para>
 
 <para>
-<command>tfortune</command> does not recognize 
+<command>tfortune</command> does not recognize
 <citerefentry>
 <refentrytitle>fortune</refentrytitle><manvolnum>6</manvolnum>
 </citerefentry>'s
